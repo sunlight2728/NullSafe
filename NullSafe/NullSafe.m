@@ -1,7 +1,7 @@
 //
 //  NullSafe.m
 //
-//  Version 1.2.2
+//  Version 2.0
 //
 //  Created by Nick Lockwood on 19/12/2012.
 //  Copyright 2012 Charcoal Design
@@ -39,7 +39,7 @@
 #endif
 
 
-#pragma GCC diagnostic ignored "-Wgnu-conditional-omitted-operand"
+#pragma clang diagnostic ignored "-Wgnu-conditional-omitted-operand"
 
 
 @implementation NSNull (NullSafe)
@@ -48,79 +48,31 @@
 
 - (NSMethodSignature *)methodSignatureForSelector:(SEL)selector
 {
-    @synchronized([self class])
+    //look up method signature
+    NSMethodSignature *signature = [super methodSignatureForSelector:selector];
+    if (!signature)
     {
-        //look up method signature
-        NSMethodSignature *signature = [super methodSignatureForSelector:selector];
-        if (!signature)
+        for (Class someClass in @[
+            [NSMutableArray class],
+            [NSMutableDictionary class],
+            [NSMutableString class],
+            [NSNumber class],
+            [NSDate class],
+            [NSData class]
+        ])
         {
-            //not supported by NSNull, search other classes
-            static NSMutableSet *classList = nil;
-            static NSMutableDictionary *signatureCache = nil;
-            if (signatureCache == nil)
+            @try
             {
-                classList = [[NSMutableSet alloc] init];
-                signatureCache = [[NSMutableDictionary alloc] init];
-                
-                //get class list
-                int numClasses = objc_getClassList(NULL, 0);
-                Class *classes = (Class *)malloc(sizeof(Class) * (unsigned long)numClasses);
-                numClasses = objc_getClassList(classes, numClasses);
-                
-                //add to list for checking
-                NSMutableSet *excluded = [NSMutableSet set];
-                for (int i = 0; i < numClasses; i++)
+                if ([someClass instancesRespondToSelector:selector])
                 {
-                    //determine if class has a superclass
-                    Class someClass = classes[i];
-                    Class superclass = class_getSuperclass(someClass);
-                    while (superclass)
-                    {
-                        if (superclass == [NSObject class])
-                        {
-                            [classList addObject:someClass];
-                            break;
-                        }
-                        [excluded addObject:NSStringFromClass(superclass)];
-                        superclass = class_getSuperclass(superclass);
-                    }
+                    signature = [someClass instanceMethodSignatureForSelector:selector];
+                    break;
                 }
-
-                //remove all classes that have subclasses
-                for (Class someClass in excluded)
-                {
-                    [classList removeObject:someClass];
-                }
-
-                //free class list
-                free(classes);
             }
-            
-            //check implementation cache first
-            NSString *selectorString = NSStringFromSelector(selector);
-            signature = signatureCache[selectorString];
-            if (!signature)
-            {
-                //find implementation
-                for (Class someClass in classList)
-                {
-                    if ([someClass instancesRespondToSelector:selector])
-                    {
-                        signature = [someClass instanceMethodSignatureForSelector:selector];
-                        break;
-                    }
-                }
-                
-                //cache for next time
-                signatureCache[selectorString] = signature ?: [NSNull null];
-            }
-            else if ([signature isKindOfClass:[NSNull class]])
-            {
-                signature = nil;
-            }
+            @catch (__unused NSException *unused) {}
         }
-        return signature;
     }
+    return signature;
 }
 
 - (void)forwardInvocation:(NSInvocation *)invocation
